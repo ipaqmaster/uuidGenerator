@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+from multiprocessing import Pool
+import argparse
+import os
+import uuid
+
+
+# Tested in Kernel 6.12.41, with preempt=full
+# Generates 450k/s @4779Mhz 69c on a 5950X with # taskset -c 0 ./main
+def generator(count):
+    if isinstance(count, bool) and count is True:
+        while True:
+            print(uuid.uuid4())
+
+    elif isinstance(count,int):
+        for _ in range(0, count):
+            print(uuid.uuid4())
+
+    else:
+        return(False)
+
+def main():
+    cpu_thread_count = os.cpu_count()
+
+    parser = argparse.ArgumentParser(description="A UUID(v4) generator.")
+
+    parser.add_argument(
+            '--debug',
+            action='store_true',
+            default=False,
+            help='Enable debug logging'
+            )
+
+    parser.add_argument(
+            '--count',
+            type=int,
+            default=1,
+            help='How many UUIDs to generate.'
+            )
+
+    parser.add_argument(
+            '--flood',
+            action='store_true',
+            default=False,
+            help='Generate as many as possible. (By default, on a single thread)'
+            )
+
+    parser.add_argument(
+            '--threaded',
+            action='store_true',
+            default=False,
+            help='Use multiple generator threads.'
+            )
+
+    parser.add_argument(
+            '--threads',
+            type=int,
+            default=cpu_thread_count,
+            help='How many threads to use if --threaded is used. (Default is host thread count. On this machine that is: %s)' % str(cpu_thread_count)
+            )
+
+
+
+    args = parser.parse_args()
+
+
+    if args.flood:
+        if args.threaded:
+            threads = []
+            pool = Pool(processes=cpu_thread_count)
+
+            # Tested in Kernel 6.12.41, with preempt=full
+            # Generates 7.51M/s @4130MHz 55c on a 5950X with # ./main --flood --threaded | pv -l >/dev/null.
+            # Piping into PV seems to cap each thread's performance to ~70% cpu. It uses the full socket 100% piped directly into /dev/null
+
+            # Using -1 total threads so pv has its own thread to count on I saw a peak of 7.68M/s and full cpu socket usage:
+            # taskset -c 0-30 ./main --flood --threaded --threads 31 | taskset -c 31 pv -l >/dev/null
+            for _ in range(0, args.threads):
+                thread = pool.apply_async(generator, args=(True,))
+                threads.append(thread)
+
+            pool.close()
+            pool.join()
+
+        else:
+            generator(True)
+
+    else:
+       generator(args.count)
+
+if __name__ == "__main__":
+    main()
+
